@@ -96,28 +96,30 @@ module learn_move::my_module {
         let final_owner = @0xFACE;
 
         // first transaction executed by admin
-        let scenario = &mut test_scenario::begin(&admin);
+        let scenario = test_scenario::begin(admin);
 
         {
-            sword_create(42, 7, initial_owner, test_scenario::ctx(scenario))
+         sword_create(42, 7, initial_owner, test_scenario::ctx(&mut scenario))
         };
 
-        test_scenario::next_tx(scenario, &initial_owner);
+        test_scenario::next_tx(&mut scenario, initial_owner);
         {
             // we just take the object???
-            let sword = test_scenario::take_owned<Sword>(scenario);
+            let sword = test_scenario::take_from_address<Sword>(&mut scenario, initial_owner);
 
-            sword_transfer(sword, final_owner, test_scenario::ctx(scenario));
+            sword_transfer(sword, final_owner, test_scenario::ctx(&mut scenario));
         };
 
-        test_scenario::next_tx(scenario, &final_owner);
+        test_scenario::next_tx(&mut scenario, final_owner);
         {
-            let sword = test_scenario::take_owned<Sword>(scenario);
+            let sword = test_scenario::take_from_address<Sword>(&mut scenario, final_owner);
             assert!(magic(&sword) == 42 && strength(&sword) == 7, 1);
 
             // return the object
-            test_scenario::return_owned(scenario, sword);
+            test_scenario::return_to_address<Sword>(final_owner, sword);
         };
+        // end the scenario
+        test_scenario::end(scenario);
     }
 
 }
