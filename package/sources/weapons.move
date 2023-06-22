@@ -3,9 +3,11 @@ module package::weapons {
     use std::string::{Self,String};
     // use std::debug;
 
+    use sui::dynamic_field as df;
+    use sui::dynamic_object_field as dof;
     use sui::object::{Self, UID};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
+    use sui::tx_context::{TxContext};
+    // use sui::transfer;
 
     /// This error will appear when you try to put a weapon in a holder that already has a weapon
     const EHolderAlreadyHasWeapon: u64 = 0;
@@ -18,7 +20,7 @@ module package::weapons {
     struct Weapon has key, store {
         id: UID,
         damage: u16,
-        type: String,
+        type: String,        
     }
 
 
@@ -27,29 +29,15 @@ module package::weapons {
         weapon: Option<Weapon>
     }
 
-
-    public fun mint(ctx: &mut TxContext): Weapon {
-        let uid: UID = object::new(ctx);
-    
-        let weapon = Weapon {
-            id: uid,
-            damage: 100,
-            type: string::utf8(b"katana"),
-        };
-
-        let holder = Holder {
-            id: object::new(ctx),
-            weapon: option::none<Weapon>()
-        };
-
-        // debug::print<vector<u8>>(&b"katana");
-        let sender: address = tx_context::sender(ctx);
-        // debug::print<Weapon>(&weapon);
-        transfer::public_transfer(holder, sender);
-        weapon
+    struct HolderAccessory has key, store {
+        id: UID,
+        color: String,
+        name: String
     }
 
 
+
+    // === Weapon Functions ====
 
     public fun forge(damage: u16, type: String, ctx: &mut TxContext): Weapon {
         let weapon = Weapon {
@@ -57,11 +45,50 @@ module package::weapons {
             damage,
             type
         };
+
+        let name: String = string::utf8(b"slash_count");
+        let value: u64 = 0;
+
+        df::add<String, u64>(&mut weapon.id, name, value);
+
         weapon
     }
 
-    public fun get_id(weapon: &Weapon): &UID {
-        &weapon.id
+    // getter
+    public fun get_damage(weapon: &Weapon): &u16 {
+        &weapon.damage
+    }
+
+    public fun slash(weapon: &mut Weapon) {
+        let count = df::borrow_mut<String, u64>(&mut weapon.id, string::utf8(b"slash_count"));
+        *count = *count + 1;
+    }
+
+    public fun add_accessory(color: String, name: String, holder: &mut Holder<Weapon>, ctx: &mut TxContext) {
+        let accessory = HolderAccessory {
+            id: object::new(ctx),
+            color,
+            name
+        };
+
+        dof::add<String, HolderAccessory>(&mut holder.id, name, accessory); 
+    }
+
+    public fun burn_weapon(weapon: Weapon){
+        df::remove<String, u64>(&mut weapon.id, string::utf8(b"slash_count"));
+        let Weapon{ id, damage: _, type: _} = weapon;
+        object::delete(id);
+    }
+
+    // === Holder Functions ===
+
+    public fun mint_holder(ctx: &mut TxContext): Holder<Weapon> {
+        let holder = Holder {
+            id: object::new(ctx),
+            weapon: option::none<Weapon>()
+        };
+
+        holder
     }
 
     public fun borrow_sword_mut(holder: &mut Holder<Weapon>): &mut Weapon {
@@ -79,15 +106,16 @@ module package::weapons {
         weapon
     }
 
-    public fun burn_weapon(weapon: Weapon){
-        let Weapon{ id, damage: _, type: _} = weapon;
-        object::delete(id);
-    }
-
     public fun burn_holder(holder: Holder<Weapon>) {
         let is_empty = is_empty(&holder);
 
         let Holder { id, weapon } = holder;
+
+        if (dof::exists_<String>(&mut id, string::utf8(b"strings"))) {
+            let accessory = dof::remove<String, HolderAccessory>(&mut id, string::utf8(b"strings"));
+            let HolderAccessory {id, color: _, name: _} = accessory;
+            object::delete(id);
+        };
         object::delete(id);
 
         if (is_empty) {
@@ -102,7 +130,7 @@ module package::weapons {
 
     // helper
     public fun is_empty(holder: &Holder<Weapon>): bool {
-        option::is_some<Weapon>(&holder.weapon)
+        option::is_none<Weapon>(&holder.weapon)
     }
 }
 // 0x7c8f52f7f53791a9cd007d4e943f10f486f4fcb43ec643f196f6adcfb52e39c4
