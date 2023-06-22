@@ -41,6 +41,7 @@ module package::weapons {
             id: object::new(ctx),
             weapon: option::none<Weapon>()
         };
+
         // debug::print<vector<u8>>(&b"katana");
         let sender: address = tx_context::sender(ctx);
         // debug::print<Weapon>(&weapon);
@@ -78,9 +79,31 @@ module package::weapons {
         weapon
     }
 
-//     public fun transfer(weapon: Weapon, recipient: address) {
-//         transfer::transfer(weapon, recipient);
-//     }
+    public fun burn_weapon(weapon: Weapon){
+        let Weapon{ id, damage: _, type: _} = weapon;
+        object::delete(id);
+    }
+
+    public fun burn_holder(holder: Holder<Weapon>) {
+        let is_empty = is_empty(&holder);
+
+        let Holder { id, weapon } = holder;
+        object::delete(id);
+
+        if (is_empty) {
+            option::destroy_none(weapon);
+        } else {
+            let weapon_ = option::destroy_some<Weapon>(weapon);
+            burn_weapon(weapon_);
+        }
+
+    }
+
+
+    // helper
+    public fun is_empty(holder: &Holder<Weapon>): bool {
+        option::is_some<Weapon>(&holder.weapon)
+    }
 }
 // 0x7c8f52f7f53791a9cd007d4e943f10f486f4fcb43ec643f196f6adcfb52e39c4
 #[test_only]
