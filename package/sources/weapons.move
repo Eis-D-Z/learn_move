@@ -5,9 +5,11 @@ module package::weapons {
 
     use sui::dynamic_field as df;
     use sui::dynamic_object_field as dof;
+    use sui::display;
     use sui::object::{Self, UID};
-    use sui::tx_context::{TxContext};
-    // use sui::transfer;
+    use sui::package;
+    use sui::tx_context::{Self, TxContext};
+    use sui::transfer;
 
     /// This error will appear when you try to put a weapon in a holder that already has a weapon
     const EHolderAlreadyHasWeapon: u64 = 0;
@@ -20,7 +22,15 @@ module package::weapons {
     struct Weapon has key, store {
         id: UID,
         damage: u16,
-        type: String,        
+        type: String
+    }
+
+    struct ChangeCap has key {
+        id: UID
+    }
+
+    public fun change_damage(_: &ChangeCap, weapon: &mut Weapon, new_damage: u16) {
+        weapon.damage = new_damage;
     }
 
 
@@ -29,10 +39,37 @@ module package::weapons {
         weapon: Option<Weapon>
     }
 
-    struct HolderAccessory has key, store {
+    struct BunnyBadge has drop, copy {}
+    struct KittyBadge has drop, copy {}
+    struct ColoredStrings has drop, copy {}
+
+    struct HolderAccessory<phantom T: drop+copy> has key, store {
         id: UID,
         color: String,
         name: String
+    }
+
+    struct WEAPONS has drop {}
+
+    fun init(otw: WEAPONS, ctx: &mut TxContext) {
+        let publisher = package::claim(otw, ctx);
+
+        let keys: vector<String> = vector[
+            string::utf8(b"description"),
+            string::utf8(b"type"),
+            string::utf8(b"image_url")
+        ];
+
+        let values: vector<String> = vector[
+            string::utf8(b"My super weapon with {damage} power."),
+            string::utf8(b"The type is {type}"),
+            string::utf8(b"ipfs://bafkreihpipggrlmpusabkitpsawy33miqnrolqvaxdosz6o52adb2oidae")
+        ];
+
+        let display = display::new_with_fields<Weapon>(&publisher, keys, values, ctx);
+
+        transfer::public_transfer(display, tx_context::sender(ctx));
+        transfer::public_transfer(publisher, tx_context::sender(ctx));
     }
 
 
@@ -64,14 +101,19 @@ module package::weapons {
         *count = *count + 1;
     }
 
-    public fun add_accessory(color: String, name: String, holder: &mut Holder<Weapon>, ctx: &mut TxContext) {
-        let accessory = HolderAccessory {
+    public fun add_accessory<T: drop+copy>(color: String, name: String, holder: &mut Holder<Weapon>, ctx: &mut TxContext) {
+        let accessory = HolderAccessory<T> {
             id: object::new(ctx),
             color,
             name
         };
 
-        dof::add<String, HolderAccessory>(&mut holder.id, name, accessory); 
+        dof::add<String, HolderAccessory<T>>(&mut holder.id, name, accessory); 
+    }
+
+    public fun remove_accessory<T: drop+copy>(holder: &mut Holder<Weapon>, name: String): HolderAccessory<T> {
+        let accessory = dof::remove<String, HolderAccessory<T>>(&mut holder.id, name);
+        accessory
     }
 
     public fun burn_weapon(weapon: Weapon){
@@ -111,11 +153,6 @@ module package::weapons {
 
         let Holder { id, weapon } = holder;
 
-        if (dof::exists_<String>(&mut id, string::utf8(b"strings"))) {
-            let accessory = dof::remove<String, HolderAccessory>(&mut id, string::utf8(b"strings"));
-            let HolderAccessory {id, color: _, name: _} = accessory;
-            object::delete(id);
-        };
         object::delete(id);
 
         if (is_empty) {

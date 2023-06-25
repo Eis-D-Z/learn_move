@@ -19,22 +19,25 @@ const getSignerAddress = () => {
   return { address, signer };
 };
 const packageId =
-  "0xe2958e0a8a8b763fb7ffea7c40bea6aa23b2ef398e146af26aad901eb952a5d1";
+  "0xa5737efbd706103a1472244e9108cb92c6424da605022f00a0a863243eca74e7";
 
 const moduleName = "weapons";
 
 const mint = async () => {
+  console.log(0.3 == 0.1 + 0.2);
   const { address, signer } = getSignerAddress();
 
   const tx = new TransactionBlock();
   tx.setGasBudget(1000000000);
   tx.setSender(address);
-  const functionName = "mint";
+  const functionName = "forge";
   const weapon = tx.moveCall({
     target: `${packageId}::${moduleName}::${functionName}`,
-    arguments: [],
+    arguments: [tx.pure("255", "u16"), tx.pure("katana", "string")],
     typeArguments: [],
   });
+
+  
   
   console.log(weapon);
   let recipient = tx.pure(address, "address");
@@ -98,6 +101,29 @@ const do_a_lot = async () => {
   console.log(JSON.stringify(response));
 }
 
-do_a_lot()
+const update_display = async () => {
+  const { address, signer } = getSignerAddress();
+  const tx = new TransactionBlock();
+
+  tx.moveCall({
+    target: "0x2::display::update_version",
+    arguments: [tx.object("0xa59424c11955574da4b2e6c1aa5184ba001e76faa09c71aa4a02f4117fd762a3")],
+    typeArguments: [`${packageId}::weapons::Weapon`]
+
+  });
+
+  
+  const response = await signer.signAndExecuteTransactionBlock({
+    transactionBlock: tx,
+    requestType: "WaitForLocalExecution"
+  });
+
+  console.log(response);
+
+}
+
+// do_a_lot()
+// mint()
+update_display()
 
 
