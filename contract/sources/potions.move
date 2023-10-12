@@ -1,22 +1,38 @@
 module contract::potions {
     // imports
+    use sui::balance::Balance;
+    use sui::coin::{Coin, Self};
+    use sui::display;
+    use sui::dynamic_object_field as dof;
     use sui::object::{Self, UID};
+    use sui::package;
     // use sui::table::{Self, Table};
     use sui::tx_context::{Self, TxContext};
     use sui::transfer;
 
-    use std::string::String;
-    use std::vector;
+    use std::string::{String, Self};
+
+    use contract::alc::ALC;
 
     // constants / error codes
     const EPotionNotFoundInShelf: u64 = 0;
-    // const ADMIN: address = @0x6f2d5e80dd21cb2c87c80b227d662642c688090dc81adbd9c4ae1fe889dfaf71;
+    const EAmountIsNotExact: u64 = 1;
+    
+
+    const POTION_PRICE: u64 = 10000;
 
     // structs
+
+    struct POTIONS has drop {}
+
+    struct MintCap has key {
+        id: UID
+    }
+
     struct Potion<phantom T> has key, store {
         id: UID,
         name: String,
-        number: u8,
+        purity: u64,
         creator: address,
         label: Label,
     }
@@ -32,35 +48,57 @@ module contract::potions {
     struct LvlUp has drop {}
     struct LUCK has drop {}
 
-    struct PotionSmallShelf<phantom T> has key {
+
+    struct Shelf has key, store {
         id: UID,
-        potions: vector<Potion<T>>,
+        payments: Balance<ALC>
     }
 
-    // struct PotionLargeShelf has key, store {
-    //     id: UID,
-    //     potions: Table<Potion, bool>
-    // }
+    fun init(otw: POTIONS, ctx: &mut TxContext) {
 
-    fun init(ctx: &mut TxContext) {
-        let small_shelf = PotionSmallShelf<AGI> {
-            id: object::new(ctx),
-            potions: vector::empty<Potion<AGI>>()
+        let publisher = package::claim<POTIONS>(otw, ctx);
+
+        let display_keys = vector[
+            string::utf8(b"image_url"),
+            string::utf8(b"name"),
+            string::utf8(b"creator")
+        ];
+
+        let display_values = vector [
+            string::utf8(b"https://cdna.artstation.com/p/assets/images/images/006/068/392/large/nathanael-mortensen-luck-potion-final-2.jpg?1495798250"),
+            string::utf8(b"{name}"),
+            string::utf8(b"Eis D. Zaster gaming LTD")
+        ];
+        let display = display::new_with_fields<Potion<LUCK>>(
+            &publisher,
+            display_keys,
+            display_values,
+            ctx    
+
+        );
+
+        display::update_version<Potion<LUCK>>(&mut display);
+
+        let shelf = Shelf {
+            id: object::new(ctx),      
         };
 
-        // let large_shelf = PotionLargeShelf {
-        //     id: object::new(ctx),
-        //     potions: table::new<Potions, bool>(ctx)           
-        // };
+        let cap = MintCap {
+            id: object::new(ctx)
+        };
 
-        transfer::share_object(small_shelf);
-        // transfer::public_share_object(large_shelf);
+        let sender = tx_context::sender(ctx);
+        transfer::public_transfer(publisher,sender);
+        transfer::public_transfer(display, sender);
+        transfer::transfer(cap, sender);
+        transfer::public_share_object(shelf);
     }
 
     // fun
     public fun mint<T>(
+        _: &MintCap,
         name: String,
-        number: u8,
+        purity: u64,
         sn: u8,
         description: String,
         ctx: &mut TxContext
@@ -73,33 +111,38 @@ module contract::potions {
         let potion = Potion<T> {
             id: object::new(ctx),
             name,
-            number,
+            purity,
             creator: tx_context::sender(ctx),
             label
         };
 
-        // let num = potion.number;
+        // let num = potion.purity;
         potion
     }
 
     public entry fun mint_and_transfer<T>(
+        cap: &MintCap,
         name: String,
-        number: u8,
+        purity: u64,
         sn: u8,
         description: String,
         ctx: &mut TxContext) 
     {
-        let potion = mint<T>(name, number, sn, description, ctx);
+        let potion = mint<T>(cap, name, purity, sn, description, ctx);
         transfer::public_transfer(potion, tx_context::sender(ctx));
     }
 
     public fun burn<T>(potion: Potion<T>) {
-        let Potion {id, name: _, number: _, creator: _, label: _} = potion;
+        let Potion {id, name: _, purity: _, creator: _, label: _} = potion;
         object::delete(id);
     }
 
     public fun drink_potion<T>(potion: Potion<T>) {
         burn(potion);
+    }
+
+    public fun drink_agi_potion(potion: Potion<AGI>) {
+        burn<AGI>(potion);
     }
 
     // Read functions for Potion
@@ -120,28 +163,44 @@ module contract::potions {
 
     // Shelf functions
 
-    public fun put_in_small_shelf<T>(shelf: &mut PotionSmallShelf<T>, potion: Potion<T>) {
-        vector::push_back<Potion<T>>(&mut shelf.potions, potion);
+    public fun put_in_shelf<T>(shelf: &mut Shelf, potion: Potion<T>) {
+        dof::add<address, Potion<T>>(
+            &mut shelf.id,
+            object::id_address<Potion<T>>(&potion),
+            potion
+        );
     }
 
-    public fun look_for_potion_small_shelf<T>(
-        shelf: &mut PotionSmallShelf<T>,
-        index: u64
-    ): &Potion<T>
-    {
-       assert!(vector::length<Potion<T>>(&shelf.potions) > index, EPotionNotFoundInShelf);
-       vector::borrow<Potion<T>>(&shelf.potions, index)
+    public fun get_from_shelf<T>(
+        shelf: &mut Shelf,
+        potion_address: address,
+        payment: Coin<ALC>
+        ): Potion<T> {
+        assert!(coin::value<ALC>(&payment) == POTION_PRICE, EAmountIsNotExact);
+        assert!(dof::exists_<address>(&mut shelf.id, potion_address), EPotionNotFoundInShelf);
+        let balance = coin::into_balance<ALC>(payment);
+        balance::join<ALC>(&mut shelf.payments, balance);
+        dof::remove<address, Potion<T>>(&mut shelf.id, potion_address)
     }
 
-    public fun take_potion_from_small_shelf<T>(
-        shelf: &mut PotionSmallShelf<T>,
-        index: u64): Potion<T> 
-    {
-        assert!(vector::length<Potion<T>>(&shelf.potions) > index, EPotionNotFoundInShelf);
-        vector::remove<Potion<T>>(&mut shelf.potions, index)
+    public fun borrow_from_shelf<T>(shelf: &mut Shelf, potion_address: address): &Potion<T> {
+        assert!(dof::exists_<address>(&mut shelf.id, potion_address), EPotionNotFoundInShelf);
+        dof::borrow<address, Potion<T>>(&mut shelf.id, potion_address)
     }
+
+    public fun get_some_profit(_: &MintCap, shelf: &mut Shelf, value: u64, ctx: &mut TxContext ): Coin<ALC> {
+        assert!(value <= balance::value(&shelf.payments));
+
+        let coin1 = coin::take<ALC>(&mut shelf.payments, value, ctx);
+
+        coin1
+    }
+
     
-    public fun drink_agi_potion(potion: Potion<AGI>) {
-        burn<AGI>(potion);
+
+    #[test_only]
+    public fun call_init(ctx: &mut TxContext) {
+        init(ctx);
     }
 }
+
